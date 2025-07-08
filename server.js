@@ -17,11 +17,15 @@ app.use('/audio', express.static('uploads'));
 
 app.post('/upload', upload.single('file'), async (req, res) => {
   try {
+    console.log(`\u{1F4E4} Received file ${req.file.path}`);
     const treeRaw = await parseUploadedFile(req.file.path);
+    await fs.unlink(req.file.path); // cleanup uploaded file
+
     const tree = normaliseTree(treeRaw);
     const ivr = await buildTree(tree);
     const id = crypto.randomUUID();
     await fs.writeFile(`uploads/${id}.json`, JSON.stringify(ivr));
+    console.log(`\u{1F4C4} IVR definition saved to uploads/${id}.json`);
     res.json({ id });
   } catch (err) {
     console.error(err);
@@ -43,6 +47,7 @@ app.listen(3000, () => {
 const crypto = require('crypto');
 
 async function parseUploadedFile(filePath) {
+  console.log(`\u{1F4C1} Parsing uploaded file ${filePath}`);
   const content = await fs.readFile(filePath, 'utf8');
   const ext = path.extname(filePath).toLowerCase();
 
@@ -71,6 +76,7 @@ function normaliseTree(node) {
 
 
 async function buildTree(node, parentPath = 'root', index = 0) {
+  console.log(`\u{1F50E} Building audio for node: "${node.text}"`);
   const safeText = node.text.replace(/\s+/g, ' ').trim();
   const filename = `${parentPath}_${index}.mp3`;
   const filepath = path.join(__dirname, 'uploads', filename);
@@ -89,7 +95,8 @@ async function buildTree(node, parentPath = 'root', index = 0) {
   );
 
   // 💾 Save audio to file
-  fs.writeFileSync(filepath, Buffer.from(audio));
+  console.log(`\u{1F4BE} Writing audio to ${filepath}`); // 💾
+  await fs.writeFile(filepath, Buffer.from(audio));
 
   // 🔁 Recursively process children (if any)
   if (node.children && node.children.length > 0) {
