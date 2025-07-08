@@ -9,8 +9,12 @@ const { ElevenLabsClient } = require('elevenlabs');
 require('dotenv').config();
 
 const app = express();
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({ dest: 'uploads/tmp/' });
 const client = new ElevenLabsClient({ apiKey: process.env.ELEVEN_KEY });
+let currentBuildId = null;
+
+// Ensure temporary upload directory exists
+fs.mkdir(path.join(__dirname, 'uploads', 'tmp'), { recursive: true }).catch(() => {});
 
 app.use(express.static('public'));
 app.use('/audio', express.static('uploads'));
@@ -22,10 +26,19 @@ app.post('/upload', upload.single('file'), async (req, res) => {
     await fs.unlink(req.file.path); // cleanup uploaded file
 
     const tree = normaliseTree(treeRaw);
-    const ivr = await buildTree(tree);
     const id = crypto.randomUUID();
-    await fs.writeFile(`uploads/${id}.json`, JSON.stringify(ivr));
-    console.log(`\u{1F4C4} IVR definition saved to uploads/${id}.json`);
+    const dir = path.join(__dirname, 'uploads', id);
+    await fs.mkdir(dir, { recursive: true });
+
+    if (currentBuildId && currentBuildId !== id) {
+      await cleanupBuild(currentBuildId);
+    }
+
+    const ivr = await buildTree(tree, dir);
+    await fs.writeFile(path.join(dir, 'ivr.json'), JSON.stringify(ivr));
+    console.log(`\u{1F4C4} IVR definition saved to ${path.join(dir, 'ivr.json')}`);
+
+    currentBuildId = id;
     res.json({ id });
   } catch (err) {
     console.error(err);
@@ -34,8 +47,19 @@ app.post('/upload', upload.single('file'), async (req, res) => {
 });
 
 app.get('/tree/:id', async (req, res) => {
-  const file = `uploads/${req.params.id}.json`;
-  res.sendFile(path.resolve(file));
+  const file = path.join(__dirname, 'uploads', req.params.id, 'ivr.json');
+  res.sendFile(file);
+});
+
+app.delete('/build/:id', async (req, res) => {
+  try {
+    await cleanupBuild(req.params.id);
+    if (currentBuildId === req.params.id) currentBuildId = null;
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.listen(3000, () => {
@@ -75,11 +99,12 @@ function normaliseTree(node) {
 
 
 
-async function buildTree(node, parentPath = 'root', index = 0) {
+async function buildTree(node, dir, parentPath = 'root', index = 0) {
   console.log(`\u{1F50E} Building audio for node: "${node.text}"`);
   const safeText = node.text.replace(/\s+/g, ' ').trim();
   const filename = `${parentPath}_${index}.mp3`;
-  const filepath = path.join(__dirname, 'uploads', filename);
+  const filepath = path.join(dir, filename);
+  const buildId = path.basename(dir);
 
   // 🔁 Call ElevenLabs API to generate audio
   let audio;
@@ -115,12 +140,17 @@ async function buildTree(node, parentPath = 'root', index = 0) {
   // 🔁 Recursively process children (if any)
   if (node.children && node.children.length > 0) {
     for (let i = 0; i < node.children.length; i++) {
-      await buildTree(node.children[i], `${parentPath}_${index}`, i);
+      await buildTree(node.children[i], dir, `${parentPath}_${index}`, i);
     }
   }
 
   // 🔗 Save the audio path for frontend use
-  node.audio = `/uploads/${filename}`;
+  node.audio = `/audio/${buildId}/${filename}`;
+}
+
+async function cleanupBuild(id) {
+  const dir = path.join(__dirname, 'uploads', id);
+  await fs.rm(dir, { recursive: true, force: true });
 }
 
 async function readStream(stream) {
