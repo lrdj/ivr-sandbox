@@ -1,0 +1,20 @@
+{
+  "name": "ivr-sandbox",
+  "version": "1.0.0",
+  "description": "Repo to test IVR scripts for user experience.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^17.1.0",
+    "elevenlabs": "^1.59.0",
+    "express": "^5.1.0",
+    "js-yaml": "^4.1.0",
+    "multer": "^2.0.1",
+    "opml": "^0.5.7"
+  }
+}
