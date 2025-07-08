@@ -59,9 +59,10 @@
 
     document.querySelectorAll('#pad button').forEach(btn => {
       btn.onclick = () => {
-        const pressed = btn.textContent;
-        const next = current.options?.find(o => o.key == pressed);
-        if (next) play(next.node);
+        const pressed = parseInt(btn.textContent, 10);
+        if (Number.isNaN(pressed)) return; // ignore * and #
+        const next = current.children?.[pressed - 1];
+        if (next) play(next);
       };
     });
   </script>
