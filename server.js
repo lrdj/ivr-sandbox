@@ -82,17 +82,31 @@ async function buildTree(node, parentPath = 'root', index = 0) {
   const filepath = path.join(__dirname, 'uploads', filename);
 
   // 🔁 Call ElevenLabs API to generate audio
-  const audio = await client.textToSpeech.convert(
-    {
-      text: safeText,
-      model_id: 'eleven_multilingual_v2',
-      voice_settings: undefined,
-    },
-    {
-      voiceId: process.env.VOICE_ID,
-      output_format: 'mp3_44100_128',
+  let audio;
+  try {
+    audio = await client.textToSpeech.convert(
+      {
+        text: safeText,
+        model_id: 'eleven_multilingual_v2',
+        voice_settings: undefined,
+      },
+      {
+        voiceId: process.env.VOICE_ID,
+        output_format: 'mp3_44100_128',
+      }
+    );
+  } catch (err) {
+    console.error('❌ textToSpeech.convert failed');
+    if (err.body) {
+      try {
+        const bodyText = await readStream(err.body);
+        console.error('📄 Error body:', bodyText);
+      } catch (streamErr) {
+        console.error('📄 Failed to read error body:', streamErr);
+      }
     }
-  );
+    throw err;
+  }
 
   // 💾 Save audio to file
   console.log(`\u{1F4BE} Writing audio to ${filepath}`); // 💾
@@ -107,5 +121,13 @@ async function buildTree(node, parentPath = 'root', index = 0) {
 
   // 🔗 Save the audio path for frontend use
   node.audio = `/uploads/${filename}`;
+}
+
+async function readStream(stream) {
+  const chunks = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString('utf8');
 }
 
