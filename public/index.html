@@ -1,72 +1,135 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>IVR Prototype</title>
+  <title>IVR tester</title>
   <style>
     body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 2rem; }
-    #pad { display: grid; grid-template-columns: repeat(3, 60px); grid-gap: 10px; margin-top: 1rem; }
-    #pad button { aspect-ratio: 1; font-size: 1.5rem; }
-    #status { margin: 1rem 0; }
+    h1   { margin-top: 0; }
+    .hidden { display: none; }
+
+    /* Upload panel */
+    #upload-section { display: flex; flex-direction: column; align-items: center; gap: 1rem; }
+
+    /* IVR call panel */
+    #ivr-section   { display: flex; flex-direction: column; align-items: center; gap: 1rem; }
+
+    /* Dial-pad (3 × 4) */
+    #pad           { display: grid; grid-template-columns: repeat(3, 60px); grid-gap: 10px; }
+    #pad button    { aspect-ratio: 1; font-size: 1.5rem; }
+
+    /* Buttons */
+    button         { padding: 0.4rem 0.8rem; font-size: 1rem; cursor: pointer; }
+    #status        { min-height: 1.4em; }
   </style>
 </head>
 <body>
 
   <h1>IVR Prototype</h1>
 
-  <input type="file" id="file" />
-  <button id="upload">Upload & Build IVR</button>
+  <!-- 1. Upload panel -->
+  <section id="upload-section">
+    <input type="file" id="file" />
+    <button id="upload-btn">Upload & Build IVR</button>
+    <div id="status"></div>
+  </section>
 
-  <div id="status"></div>
+  <!-- 2. IVR interaction panel -->
+  <section id="ivr-section" class="hidden">
+    <button id="dial-btn">📞 Dial 097086003 now</button>
+    <button id="end-btn"  class="hidden">End call</button>
+    <audio  id="player"  controls></audio>
 
-  <button id="call" style="display:none;">📞 Call now</button>
-  <audio id="player" controls></audio>
+    <div id="pad" class="hidden">
+      <button>1</button><button>2</button><button>3</button>
+      <button>4</button><button>5</button><button>6</button>
+      <button>7</button><button>8</button><button>9</button>
+      <button>*</button><button>0</button><button>#</button>
+    </div>
 
-  <div id="pad" style="display:none;">
-    <button>1</button><button>2</button><button>3</button>
-    <button>4</button><button>5</button><button>6</button>
-    <button>7</button><button>8</button><button>9</button>
-    <button>*</button><button>0</button><button>#</button>
-  </div>
+    <button id="new-menu-btn">New IVR menu</button>
+  </section>
 
   <script>
-    let tree, current;
+    /* ---------- State ---------- */
+    let tree        = null;   // full IVR JSON
+    let currentNode = null;   // pointer while navigating
 
-    async function upload() {
-      const file = document.getElementById('file').files[0];
+    /* ---------- Helpers ---------- */
+    const $          = sel => document.querySelector(sel);
+    const playAudio  = src => { $('#player').src = src; $('#player').play?.(); };
+    const show       = el  => el.classList.remove('hidden');
+    const hide       = el  => el.classList.add   ('hidden');
+
+    /* ---------- 1. Upload flow ---------- */
+    $('#upload-btn').onclick = async () => {
+      const file = $('#file').files[0];
       if (!file) return alert('Choose an OPML or YAML file first');
+
       const fd = new FormData(); fd.append('file', file);
+      $('#status').textContent = '⏳ Building IVR...';
 
-      document.getElementById('status').textContent = '⏳ Building IVR...';
-      const { id } = await fetch('/upload', { method: 'POST', body: fd }).then(r => r.json());
-      tree = await fetch(`/tree/${id}`).then(r => r.json());
-      current = tree;
-      document.getElementById('status').textContent = '✅ IVR ready';
-      document.getElementById('call').style.display = 'inline-block';
-    }
+      try {
+        const { id } = await fetch('/upload', { method: 'POST', body: fd }).then(r => r.json());
+        tree        = await fetch(`/tree/${id}`).then(r => r.json());
+        currentNode = tree;
+        $('#status').textContent = '✅ IVR ready';
 
-    function play(node) {
-      document.getElementById('player').src = node.audio;
-      current = node;
-    }
-
-    document.getElementById('upload').onclick = upload;
-
-    document.getElementById('call').onclick = () => {
-      document.getElementById('pad').style.display = 'grid';
-      play(tree);
+        hide($('#upload-section'));
+        show($('#ivr-section'));
+      } catch (err) {
+        console.error(err);
+        $('#status').textContent = '❌ Error building IVR';
+      }
     };
 
-    document.querySelectorAll('#pad button').forEach(btn => {
+    /* ---------- 2. Dial / call control ---------- */
+    $('#dial-btn').onclick = () => {
+      hide($('#dial-btn'));           // hide dial button
+      show($('#end-btn'));            // show end-call button
+      show($('#pad'));                // show keypad
+      currentNode = tree;             // reset pointer
+      playAudio(currentNode.audio);   // play welcome prompt
+    };
+
+    $('#end-btn').onclick = () => {
+      $('#player').pause();
+      hide($('#pad'));                // hide keypad
+      hide($('#end-btn'));
+      show($('#dial-btn'));           // show dial again
+      currentNode = null;
+    };
+
+    /* ---------- 3. Keypad navigation ---------- */
+    $('#pad').querySelectorAll('button').forEach(btn => {
       btn.onclick = () => {
-        const pressed = parseInt(btn.textContent, 10);
-        if (Number.isNaN(pressed)) return; // ignore * and #
-        const next = current.children?.[pressed - 1];
-        if (next) play(next);
+        const digit = parseInt(btn.textContent, 10);
+        if (Number.isNaN(digit)) return;                         // ignore * #
+        const next = currentNode?.children?.[digit - 1];
+        if (!next) return;                                       // invalid press
+        currentNode = next;
+        if (currentNode.audio) playAudio(currentNode.audio);
       };
     });
-  </script>
 
+    /* ---------- 4. New IVR menu ---------- */
+    $('#new-menu-btn').onclick = () => {
+      // reset state
+      tree = currentNode = null;
+      $('#player').pause();
+      $('#player').src = '';
+
+      // hide IVR panel, show upload panel
+      hide($('#ivr-section'));
+      show($('#upload-section'));
+
+      // UI resets
+      hide($('#pad'));
+      hide($('#end-btn'));
+      show($('#dial-btn'));
+      $('#status').textContent = '';
+      $('#file').value = '';          // clear previous file picker
+    };
+  </script>
 </body>
 </html>
-
