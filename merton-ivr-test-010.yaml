@@ -1,0 +1,52 @@
+text: >
+  Thank you for calling Xyzzy Council. Please select from the following services.
+  For waste enquiries, including bulky items and missed collections, press 1.
+  For housing benefit, press 2.
+  For council tax enquiries, press 3.
+  For parking services including permits and penalties, press 4.
+  For planning services, press 5.
+  To make a payment, press 6.
+  For other items, please hold.
+
+children:
+  - text: >
+      Waste services. Press 1 for missed collections. Press 2 for bulky item pickup. Press 3 for bin replacements.
+    children:
+      - text: You can report a missed collection online at xyzzy.gov.uk/missedbin
+      - text: To book a bulky item pickup, visit xyzzy.gov.uk/bulky or press 1 to speak to an advisor.
+      - text: For bin replacements, please complete the form at xyzzy.gov.uk/newbin
+
+  - text: >
+      Housing benefit. Press 1 to check your claim. Press 2 to make a new application. Press 3 for overpayment queries.
+    children:
+      - text: You can check your existing claim at xyzzy.gov.uk/benefits/check
+      - text: To apply for housing benefit, visit xyzzy.gov.uk/benefits/apply
+      - text: For overpayment issues, press 1 to speak to our recovery team
+
+  - text: >
+      Council tax. Press 1 to pay now. Press 2 to set up a Direct Debit. Press 3 to tell us you've moved house.
+    children:
+      - text: To make a payment, go to xyzzy.gov.uk/pay-council-tax
+      - text: Direct Debit setup is available at xyzzy.gov.uk/directdebit
+      - text: You can report a move online at xyzzy.gov.uk/moving
+
+  - text: >
+      Parking. Press 1 for resident permits. Press 2 for penalty charge notices. Press 3 for car park locations.
+    children:
+      - text: You can apply for or renew a resident permit at xyzzy.gov.uk/permits
+      - text: For penalty notices, visit xyzzy.gov.uk/penalty
+      - text: Car park information is available at xyzzy.gov.uk/parking
+
+  - text: >
+      Planning services. Press 1 to search planning applications. Press 2 to apply for planning permission.
+    children:
+      - text: Search planning applications at xyzzy.gov.uk/planning/search
+      - text: Apply for permission at xyzzy.gov.uk/planning/apply
+
+  - text: >
+      Payments. Press 1 to pay council tax. Press 2 to pay a parking fine. Press 3 to pay another bill.
+    children:
+      - text: Pay council tax online at xyzzy.gov.uk/pay-council-tax
+      - text: Parking fines can be paid at xyzzy.gov.uk/parking/pay
+      - text: For all other payments, visit xyzzy.gov.uk/pay
+
