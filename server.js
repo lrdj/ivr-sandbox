@@ -1,163 +1,96 @@
-// server.js
+// server.js (CommonJS version)
 const express = require('express');
 const multer = require('multer');
-const opml = require('opml');
-const yaml = require('js-yaml');
+const YAML = require('js-yaml');
 const fs = require('fs/promises');
 const path = require('path');
+const dotenv = require('dotenv');
 const { ElevenLabsClient } = require('elevenlabs');
-require('dotenv').config();
+
+dotenv.config();
 
 const app = express();
 const upload = multer({ dest: 'uploads/tmp/' });
-const client = new ElevenLabsClient({ apiKey: process.env.ELEVEN_KEY });
-let currentBuildId = null;
+const port = 3000;
 
-// Ensure temporary upload directory exists
-fs.mkdir(path.join(__dirname, 'uploads', 'tmp'), { recursive: true }).catch(() => {});
+const elevenlabs = new ElevenLabsClient({ apiKey: process.env.ELEVENLABS_API_KEY });
+const voiceId = process.env.ELEVENLABS_VOICE_ID || 'Rachel';
 
 app.use(express.static('public'));
-app.use('/audio', express.static('uploads'));
+
+function generateId() {
+  return Math.random().toString(36).substring(2, 10);
+}
+
+async function buildTreeFromYAML(filePath) {
+  const file = await fs.readFile(filePath, 'utf-8');
+  const parsed = YAML.load(file);
+  return parsed;
+}
+
+async function generateAudio(text, id, index) {
+  try {
+    const audioBuffer = await elevenlabs.textToSpeech.convert(voiceId, {
+      text,
+      modelId: 'eleven_multilingual_v2',
+      outputFormat: 'mp3_44100_128'
+    });
+
+    const filename = `node-${index}.mp3`;
+    const filepath = path.join('uploads', id, filename);
+    await fs.writeFile(filepath, audioBuffer);
+    return `/uploads/${id}/${filename}`;
+  } catch (err) {
+    console.error(`❌ Failed to generate audio for: "${text}"`, err?.body || err.message);
+    return null;
+  }
+}
+
+let nodeCounter = 0;
+async function enrichNodeWithAudio(node, id) {
+  const audioPath = await generateAudio(node.text, id, nodeCounter++);
+  node.audio = audioPath || '';
+  if (node.children && Array.isArray(node.children)) {
+    for (const child of node.children) {
+      await enrichNodeWithAudio(child, id);
+    }
+  }
+}
 
 app.post('/upload', upload.single('file'), async (req, res) => {
+  const file = req.file;
+  console.log(`📤 Received file ${file.path}`);
+
+  const id = generateId();
+  const dir = path.join('uploads', id);
+  await fs.mkdir(dir, { recursive: true });
+
   try {
-    console.log(`\u{1F4E4} Received file ${req.file.path}`);
-    const treeRaw = await parseUploadedFile(req.file.path);
-    await fs.unlink(req.file.path); // cleanup uploaded file
-
-    const tree = normaliseTree(treeRaw);
-    const id = crypto.randomUUID();
-    const dir = path.join(__dirname, 'uploads', id);
-    await fs.mkdir(dir, { recursive: true });
-
-    if (currentBuildId && currentBuildId !== id) {
-      await cleanupBuild(currentBuildId);
-    }
-
-    const ivr = await buildTree(tree, dir);
-    await fs.writeFile(path.join(dir, 'ivr.json'), JSON.stringify(ivr));
-    console.log(`\u{1F4C4} IVR definition saved to ${path.join(dir, 'ivr.json')}`);
-
-    currentBuildId = id;
+    const tree = await buildTreeFromYAML(file.path);
+    console.log(`📁 Parsed IVR tree with root prompt: "${tree.text?.slice(0, 50)}..."`);
+    nodeCounter = 0;
+    await enrichNodeWithAudio(tree, id);
+    await fs.writeFile(path.join(dir, 'ivr.json'), JSON.stringify(tree, null, 2));
     res.json({ id });
   } catch (err) {
-    console.error(err);
-    res.status(400).json({ error: err.message });
+    console.error('❌ Failed to parse and build IVR:', err);
+    res.status(500).json({ error: 'Failed to build IVR tree' });
   }
 });
 
 app.get('/tree/:id', async (req, res) => {
-  const file = path.join(__dirname, 'uploads', req.params.id, 'ivr.json');
-  res.sendFile(file);
-});
-
-app.delete('/build/:id', async (req, res) => {
+  const file = path.join('uploads', req.params.id, 'ivr.json');
   try {
-    await cleanupBuild(req.params.id);
-    if (currentBuildId === req.params.id) currentBuildId = null;
-    res.json({ success: true });
+    const tree = await fs.readFile(file, 'utf-8');
+    res.json(JSON.parse(tree));
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error('❌ Failed to load tree:', err);
+    res.status(404).json({ error: 'Tree not found' });
   }
 });
 
-app.listen(3000, () => {
-  console.log('✅ Server running at http://localhost:3000');
+app.use('/uploads', express.static('uploads'));
+
+app.listen(port, () => {
+  console.log(`✅ Server running at http://localhost:${port}`);
 });
-
-// ------------ Helpers ---------------
-
-const crypto = require('crypto');
-
-async function parseUploadedFile(filePath) {
-  console.log(`\u{1F4C1} Parsing uploaded file ${filePath}`);
-  const content = await fs.readFile(filePath, 'utf8');
-  const ext = path.extname(filePath).toLowerCase();
-
-  if (ext === '.opml') return opml.parse(content);
-  if (ext === '.yaml' || ext === '.yml') return yaml.load(content);
-
-  try {
-    return opml.parse(content);
-  } catch {
-    return yaml.load(content);
-  }
-}
-
-function normaliseTree(node) {
-  if (Array.isArray(node)) {
-    return { text: 'Start', children: node.map(normaliseTree) };
-  }
-
-  const children = node.children || node.options || [];
-  return {
-    text: node.text,
-    children: children.map(normaliseTree)
-  };
-}
-
-
-
-async function buildTree(node, dir, parentPath = 'root', index = 0) {
-  console.log(`\u{1F50E} Building audio for node: "${node.text}"`);
-  const safeText = node.text.replace(/\s+/g, ' ').trim();
-  const filename = `${parentPath}_${index}.mp3`;
-  const filepath = path.join(dir, filename);
-  const buildId = path.basename(dir);
-
-  // 🔁 Call ElevenLabs API to generate audio
-  let audio;
-  try {
-    audio = await client.textToSpeech.convert(
-      {
-        text: safeText,
-        model_id: 'eleven_multilingual_v2',
-        voice_settings: undefined,
-      },
-      {
-        voiceId: process.env.VOICE_ID,
-        output_format: 'mp3_44100_128',
-      }
-    );
-  } catch (err) {
-    console.error('❌ textToSpeech.convert failed');
-    if (err.body) {
-      try {
-        const bodyText = await readStream(err.body);
-        console.error('📄 Error body:', bodyText);
-      } catch (streamErr) {
-        console.error('📄 Failed to read error body:', streamErr);
-      }
-    }
-    throw err;
-  }
-
-  // 💾 Save audio to file
-  console.log(`\u{1F4BE} Writing audio to ${filepath}`); // 💾
-  await fs.writeFile(filepath, Buffer.from(audio));
-
-  // 🔁 Recursively process children (if any)
-  if (node.children && node.children.length > 0) {
-    for (let i = 0; i < node.children.length; i++) {
-      await buildTree(node.children[i], dir, `${parentPath}_${index}`, i);
-    }
-  }
-
-  // 🔗 Save the audio path for frontend use
-  node.audio = `/audio/${buildId}/${filename}`;
-}
-
-async function cleanupBuild(id) {
-  const dir = path.join(__dirname, 'uploads', id);
-  await fs.rm(dir, { recursive: true, force: true });
-}
-
-async function readStream(stream) {
-  const chunks = [];
-  for await (const chunk of stream) {
-    chunks.push(Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks).toString('utf8');
-}
-
